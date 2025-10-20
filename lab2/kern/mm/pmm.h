@@ -109,5 +109,8 @@ static inline struct Page *pa2page(uintptr_t pa) {
 }
 static inline void flush_tlb() { asm volatile("sfence.vm"); }
 extern char bootstack[], bootstacktop[]; // defined in entry.S
+//添加函数使其全局可用
+void *kmalloc(size_t size);
+void kfree(void *objp);
 
 #endif /* !__KERN_MM_PMM_H__ */
