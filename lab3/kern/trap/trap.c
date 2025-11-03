@@ -8,9 +8,14 @@
 #include <riscv.h>
 #include <stdio.h>
 #include <trap.h>
+#include<sbi.h>
 
 #define TICK_NUM 100
 
+//声明特权态时钟中断计数变量
+static int tickNum=0;
+//声明变量记录打印次数
+static int printCount=0;
 static void print_ticks() {
     cprintf("%d ticks\n", TICK_NUM);
 #ifdef DEBUG_GRADE
@@ -43,12 +48,15 @@ void idt_init(void) {
      *     Notice: the argument of lidt is idt_pd. try to find it!
      */
 
-    extern void __alltraps(void);
+    extern void __alltraps(void);//这个alltrap就是在trapentry.S中定义的入口函数
     /* Set sup0 scratch register to 0, indicating to exception vector
        that we are presently executing in the kernel */
     write_csr(sscratch, 0);
     /* Set the exception vector address */
     write_csr(stvec, &__alltraps);
+    /*write_csr(stvec, &__alltraps);
+stvec 是 Super­visor Trap Vector Base Address Register。
+它保存“发生异常时跳转的目标地址”。 这里就是跳转到alltrap进行处理*/
 }
 
 /* trap_in_kernel - test if trap happened in kernel */
@@ -130,6 +138,19 @@ void interrupt_handler(struct trapframe *tf) {
              *(3)当计数器加到100的时候，我们会输出一个`100ticks`表示我们触发了100次时钟中断，同时打印次数（num）加一
             * (4)判断打印次数，当打印次数为10时，调用<sbi.h>中的关机函数关机
             */
+            //2312130 景千夏BEGIN
+            /*clcok_set_next_event的实现和声明在driver/clock*/
+            clock_set_next_event();
+            tickNum++;
+            if(tickNum%TICK_NUM==0){
+                print_ticks();
+                printCount++;
+            }
+            if(printCount==10){
+                sbi_shutdown();
+            }
+            //cprintf("Supervisor timer interrupt\n");
+            //2312130 景千夏END
             break;
         case IRQ_H_TIMER:
             cprintf("Hypervisor software interrupt\n");
@@ -168,6 +189,12 @@ void exception_handler(struct trapframe *tf) {
              *(2)输出异常指令地址
              *(3)更新 tf->epc寄存器
             */
+            //2312130 景千夏BEGIN
+            cprintf("Illegal instruction\n");
+            cprintf("Scaused:%llx \n",tf->cause);//输出长16进制数(64位二进制)异常指令类型
+            cprintf("EPC:%llx \n",tf->epc);//输出长16进制数(64位二进制)异常指令地址
+            tf->epc += 4;//更新 tf->epc寄存器，指向下一条指令
+            //2312130 景千夏END
             break;
         case CAUSE_BREAKPOINT:
             //断点异常处理
@@ -176,6 +203,12 @@ void exception_handler(struct trapframe *tf) {
              *(2)输出异常指令地址
              *(3)更新 tf->epc寄存器
             */
+            //2312130 景千夏BEGIN
+            cprintf("breakpoint\n");
+            cprintf("Scaused:%llx \n",tf->cause);//输出长16进制数(64位二进制)异常指令类型
+            cprintf("EPC:%llx \n",tf->epc);//输出长16进制数(64位二进制)异常指令地址
+            tf->epc += 4;//更新 tf->epc寄存器，指向下一条指令
+            //2312130 景千夏END
             break;
         case CAUSE_MISALIGNED_LOAD:
             break;

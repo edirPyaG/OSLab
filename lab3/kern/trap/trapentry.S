@@ -105,7 +105,6 @@ __alltraps:
     move  a0, sp
     jal trap
     # sp should be the same as before "jal trap"
-
     .globl __trapret
 __trapret:
     RESTORE_ALL
