@@ -186,7 +186,26 @@ get_pid(void)
 void proc_run(struct proc_struct *proc)
 {
     if (proc != current)
-    {
+    {   
+        //2312130景千夏BEGIN
+        bool intr_flag; //关闭中断的参数
+        local_intr_save(intr_flag);
+        struct  proc_struct *prev=current; //记录之前的进程
+        struct proc_struct *next=proc; //记录目标进程
+
+        //切换页表
+        if(next->pgdir!=prev->pgdir){
+            lsatp(next->pgdir>>12|SATP_MODE_SV39);
+
+        }
+        current=next; //切换current指针
+        //切换上下文
+        switch_to(&(prev->context),&(next->context));
+
+        //重新开启中断
+        local_intr_restore(intr_flag);
+        //2312130景千夏END
+
         // LAB4:EXERCISE3 YOUR CODE
         /*
          * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
