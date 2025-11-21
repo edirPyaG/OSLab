@@ -65,7 +65,7 @@ list_entry_t proc_list;
 #define HASH_LIST_SIZE (1 << HASH_SHIFT)
 #define pid_hashfn(x) (hash32(x, HASH_SHIFT))
 
-// has list for process set based on pid
+// hash list for process set based on pid
 static list_entry_t hash_list[HASH_LIST_SIZE];
 
 // idle proc
@@ -186,8 +186,17 @@ get_pid(void)
 void proc_run(struct proc_struct *proc)
 {
     if (proc != current)
-    {   
-        //2312130景千夏BEGIN
+    {
+        // LAB4:EXERCISE3 2312130
+        /*
+         * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
+         * MACROs or Functions:
+         *   local_intr_save():        Disable interrupts
+         *   local_intr_restore():     Enable Interrupts
+         *   lsatp():                   Modify the value of satp register
+         *   switch_to():              Context switching between two processes
+         */
+        // 2312130景千夏BEGIN
         bool intr_flag; //关闭中断的参数
         local_intr_save(intr_flag);
         struct  proc_struct *prev=current; //记录之前的进程
@@ -205,17 +214,6 @@ void proc_run(struct proc_struct *proc)
         //重新开启中断
         local_intr_restore(intr_flag);
         //2312130景千夏END
-
-        // LAB4:EXERCISE3 YOUR CODE
-        /*
-         * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
-         * MACROs or Functions:
-         *   local_intr_save():        Disable interrupts
-         *   local_intr_restore():     Enable Interrupts
-         *   lsatp():                   Modify the value of satp register
-         *   switch_to():              Context switching between two processes
-         */
-
     }
 }
 
@@ -264,6 +262,12 @@ int kernel_thread(int (*fn)(void *), void *arg, uint32_t clone_flags)
     tf.gpr.s0 = (uintptr_t)fn;
     tf.gpr.s1 = (uintptr_t)arg;
     tf.status = (read_csr(sstatus) | SSTATUS_SPP | SSTATUS_SPIE) & ~SSTATUS_SIE;
+    // SSTATUS_SPP表示表示“发生trap前的特权级”。1表示之前是在S模式；0表示之前是在U模式
+    // SSTATUS_SPIE保存在发生sret时要恢复到SIE的值
+    // SSTATUS_SIE是SIE位，表示是否允许S模式下的中断，1=允许中断，0=禁止中断
+    // 读取当前sstatus
+    // 强制把SPP和SPIE位置 1（表明返回目标为S模式且返回后要使能中断）
+    // 同时把SIE清0（在当前内核上下文里禁止中断）
     tf.epc = (uintptr_t)kernel_thread_entry;
     return do_fork(clone_flags | CLONE_VM, 0, &tf);
 }
@@ -298,7 +302,7 @@ copy_mm(uint32_t clone_flags, struct proc_struct *proc)
     return 0;
 }
 
-// copy_thread - setup the trapframe on the  process's kernel stack top and
+// copy_thread - setup the trapframe on the process's kernel stack top and
 //             - setup the kernel entry point and stack of process
 static void
 copy_thread(struct proc_struct *proc, uintptr_t esp, struct trapframe *tf)
@@ -328,7 +332,7 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
         goto fork_out;
     }
     ret = -E_NO_MEM;
-    // LAB4:EXERCISE2 YOUR CODE
+    // LAB4:EXERCISE2 2313546
     /*
      * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
      * MACROs or Functions:
@@ -353,7 +357,25 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
     //    5. insert proc_struct into hash_list && proc_list
     //    6. call wakeup_proc to make the new child process RUNNABLE
     //    7. set ret vaule using child proc's pid
-    
+    proc = alloc_proc();
+    if (proc == NULL) {
+        goto fork_out; // 如果alloc_proc失败，直接返回
+    }
+    if (setup_kstack(proc) < 0) {
+        goto bad_fork_cleanup_proc; // 如果setup_kstack失败，释放proc_struct并返回
+    }
+    if (copy_mm(clone_flags, proc) < 0) {
+        goto bad_fork_cleanup_kstack; // 如果copy_mm失败，释放内核栈和proc_struct并返回
+    }
+    copy_thread(proc, stack, tf);
+    proc->parent = current;
+    proc->pid = get_pid();
+    list_add(&proc_list, &(proc->list_link));
+    hash_proc(proc);
+    wakeup_proc(proc);
+    nr_process++;
+    ret = proc->pid;
+
 fork_out:
     return ret;
 
