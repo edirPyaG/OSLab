@@ -157,12 +157,12 @@ get_pid(void)
         next_safe = MAX_PID;
     repeat:
         le = list;
-        while ((le = list_next(le)) != list)
+        while ((le = list_next(le)) != list) // 遍历proc_list链表，寻找pid冲突
         {
             proc = le2proc(le, list_link);
-            if (proc->pid == last_pid)
+            if (proc->pid == last_pid) // proc->pid与last_pid冲突，last_pid++，尝试下一个PID
             {
-                if (++last_pid >= next_safe)
+                if (++last_pid >= next_safe) // last_pid达到next_safe，说明需要重新遍历链表寻找下一个安全的PID
                 {
                     if (last_pid >= MAX_PID)
                     {
@@ -193,13 +193,13 @@ void proc_run(struct proc_struct *proc)
          * MACROs or Functions:
          *   local_intr_save():        Disable interrupts
          *   local_intr_restore():     Enable Interrupts
-         *   lsatp():                   Modify the value of satp register
+         *   lsatp():                  Modify the value of satp register
          *   switch_to():              Context switching between two processes
          */
         // 2312130景千夏BEGIN
         bool intr_flag; //关闭中断的参数
-        local_intr_save(intr_flag);
-        struct  proc_struct *prev=current; //记录之前的进程
+        local_intr_save(intr_flag); // 关闭中断
+        struct proc_struct *prev=current; //记录之前的进程
         struct proc_struct *next=proc; //记录目标进程
 
         //切换页表
@@ -433,7 +433,7 @@ void proc_init(void)
 
     if (idleproc->pgdir == boot_pgdir_pa && idleproc->tf == NULL && !context_init_flag && idleproc->state == PROC_UNINIT && idleproc->pid == -1 && idleproc->runs == 0 && idleproc->kstack == 0 && idleproc->need_resched == 0 && idleproc->parent == NULL && idleproc->mm == NULL && idleproc->flags == 0 && !proc_name_flag)
     {
-        cprintf("alloc_proc() correct!\n"); // 没有输出这里，改！！！-------------------------
+        cprintf("alloc_proc() correct!\n");
     }
 
     idleproc->pid = 0;
