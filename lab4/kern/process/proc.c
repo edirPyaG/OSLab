@@ -114,8 +114,8 @@ alloc_proc(void)
         proc->mm=NULL;
         memset(&(proc->context),0,sizeof(struct context));
         proc->tf=NULL;
-        proc->pgdir=0;
-        proc->flags;
+        proc->pgdir=boot_pgdir_pa;
+        proc->flags=0;
         memset(proc->name,0,PROC_NAME_LEN+1);
     }
     return proc;
@@ -433,7 +433,7 @@ void proc_init(void)
 
     if (idleproc->pgdir == boot_pgdir_pa && idleproc->tf == NULL && !context_init_flag && idleproc->state == PROC_UNINIT && idleproc->pid == -1 && idleproc->runs == 0 && idleproc->kstack == 0 && idleproc->need_resched == 0 && idleproc->parent == NULL && idleproc->mm == NULL && idleproc->flags == 0 && !proc_name_flag)
     {
-        cprintf("alloc_proc() correct!\n");
+        cprintf("alloc_proc() correct!\n"); // 没有输出这里，改！！！-------------------------
     }
 
     idleproc->pid = 0;
