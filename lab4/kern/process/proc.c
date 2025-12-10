@@ -205,7 +205,6 @@ void proc_run(struct proc_struct *proc)
         //切换页表
         if(next->pgdir!=prev->pgdir){
             lsatp(next->pgdir>>12|SATP_MODE_SV39);
-
         }
         current=next; //切换current指针
         //切换上下文
