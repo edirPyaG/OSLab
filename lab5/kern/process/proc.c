@@ -112,6 +112,20 @@ alloc_proc(void)
          *       uint32_t wait_state;                        // waiting state
          *       struct proc_struct *cptr, *yptr, *optr;     // relations between processes
          */
+        proc->wait_state = 0;//初始化为非等待状态
+        proc->cptr = proc->yptr = proc->optr = NULL;//暂无子进程，弟弟进程，哥哥进程
+        proc->state=PROC_UNINIT;
+        proc->pid=-1;
+        proc->runs=0;
+        proc->kstack=0;
+        proc->need_resched=0;
+        proc->parent=NULL;
+        proc->mm=NULL;
+        memset(&(proc->context),0,sizeof(struct context));
+        proc->tf=NULL;
+        proc->pgdir=boot_pgdir_pa;
+        proc->flags=0;
+        memset(proc->name,0,PROC_NAME_LEN+1);
     }
     return proc;
 }
@@ -225,6 +239,20 @@ void proc_run(struct proc_struct *proc)
          *   lsatp():                   Modify the value of satp register
          *   switch_to():              Context switching between two processes
          */
+        bool intr_flag;
+        struct proc_struct *prev = current, *next = proc;
+        local_intr_save(intr_flag);
+        {
+            current = proc;
+            // 切换页表
+            if (next->pgdir != prev->pgdir) {
+                // 使用 write_csr 直接设置 satp 寄存器，避免 lsatp 宏在 64 位下的兼容性问题
+                uintptr_t satp_val = ((uintptr_t)SATP_MODE_SV39 << 60) | (next->pgdir >> 12);
+                write_csr(satp, satp_val);
+            }
+            switch_to(&(prev->context), &(next->context));
+        }
+        local_intr_restore(intr_flag);
     }
 }
 
@@ -442,6 +470,35 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
      *    update step 1: set child proc's parent to current process, make sure current process's wait_state is 0
      *    update step 5: insert proc_struct into hash_list && proc_list, set the relation links of process
      */
+
+         proc = alloc_proc();
+    if (proc == NULL) {
+        goto fork_out; // 如果alloc_proc失败，直接返回
+    }
+    if (setup_kstack(proc) < 0) {
+        goto bad_fork_cleanup_proc; // 如果setup_kstack失败，释放proc_struct并返回
+    }
+    if (copy_mm(clone_flags, proc) < 0) {
+        goto bad_fork_cleanup_kstack; // 如果copy_mm失败，释放内核栈和proc_struct并返回
+    }
+    copy_thread(proc, stack, tf);
+
+    /* LAB5 update step1: set parent and clear parent's wait_state */
+    proc->parent = current;
+    assert(current->wait_state == 0);
+
+    // LAB5: Step 5 - use set_links to handle process list and relations
+    bool intr_flag;
+    local_intr_save(intr_flag);
+    {
+        proc->pid = get_pid();
+        hash_proc(proc);
+        set_links(proc);
+    }
+    local_intr_restore(intr_flag);
+
+    wakeup_proc(proc);
+    ret = proc->pid;
 
 fork_out:
     return ret;
@@ -677,6 +734,17 @@ load_icode(unsigned char *binary, size_t size)
      *          tf->status should be appropriate for user program (the value of sstatus)
      *          hint: check meaning of SPP, SPIE in SSTATUS, use them by SSTATUS_SPP, SSTATUS_SPIE(defined in risv.h)
      */
+    /* Set user stack pointer to top of user stack */
+    tf->gpr.sp = USTACKTOP;
+    /* Program entry point from ELF header */
+    tf->epc = elf->e_entry;
+    /*
+     * Prepare sstatus for returning to user mode:
+     *  - clear SPP (previous privilege = user)
+     *  - clear SIE (ensure interrupts disabled in supervisor when returning)
+     *  - set SPIE so interrupts will be enabled after sret in user mode
+     */
+    tf->status = (sstatus & ~SSTATUS_SPP & ~SSTATUS_SIE) | SSTATUS_SPIE;
 
     ret = 0;
 out:
