@@ -18,6 +18,10 @@
 
 #define TICK_NUM 100
 
+//声明特权态时钟中断计数变量
+static int tickNum=0;
+//声明变量记录打印次数
+static int printCount=0;
 static void print_ticks()
 {
     cprintf("%d ticks\n", TICK_NUM);
@@ -121,12 +125,20 @@ void interrupt_handler(struct trapframe *tf)
         // In fact, Call sbi_set_timer will clear STIP, or you can clear it
         // directly.
         // cprintf("Supervisor timer interrupt\n");
-        /* LAB5 GRADE   YOUR CODE :  */
-        /* 时间片轮转：
-         *(1) 设置下一次时钟中断（clock_set_next_event）
-         *(2) ticks 计数器自增
-         *(3) 每 TICK_NUM 次中断（如 100 次），进行判断当前是否有进程正在运行，如果有则标记该进程需要被重新调度（current->need_resched）
+        /* LAB3 EXERCISE1   YOUR CODE :  */
+        /*(1)设置下次时钟中断- clock_set_next_event()
+         *(2)计数器（ticks）自增
+         *(3)每TICK_NUM次中断（如100次），进行判断当前是否有进程正在运行，如果有则标记该进程需要被重新调度（current->need_resched）
          */
+        clock_set_next_event();
+        tickNum++;
+        if(tickNum%TICK_NUM==0){
+            if(current!=NULL&&current!=idleproc&&!trap_in_kernel(tf))
+            {
+                current->need_resched=1;
+            }
+        }
+
         break;
     case IRQ_H_TIMER:
         cprintf("Hypervisor software interrupt\n");
