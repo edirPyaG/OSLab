@@ -422,7 +422,14 @@ int copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end,
              * (3) memory copy from src_kvaddr to dst_kvaddr, size is PGSIZE
              * (4) build the map of phy addr of  nage with the linear addr start
              */
-
+            // (1) 源页的内核虚拟地址
+            void *src_kvaddr = page2kva(page);
+            // (2) 目标页的内核虚拟地址
+            void *dst_kvaddr = page2kva(npage);
+            // (3) 拷贝一页内容
+            memcpy(dst_kvaddr, src_kvaddr, PGSIZE);
+            // (4) 在 to（子进程）的页表中建立线性地址 start 的映射
+            ret = page_insert(to, npage, start, perm);
             assert(ret == 0);
         }
         start += PGSIZE;
