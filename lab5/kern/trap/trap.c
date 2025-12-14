@@ -125,7 +125,7 @@ void interrupt_handler(struct trapframe *tf)
         // In fact, Call sbi_set_timer will clear STIP, or you can clear it
         // directly.
         // cprintf("Supervisor timer interrupt\n");
-        /* LAB3 EXERCISE1   YOUR CODE :  */
+        /* LAB5 GRADE 2313247 :*/
         /*(1)设置下次时钟中断- clock_set_next_event()
          *(2)计数器（ticks）自增
          *(3)每TICK_NUM次中断（如100次），进行判断当前是否有进程正在运行，如果有则标记该进程需要被重新调度（current->need_resched）
