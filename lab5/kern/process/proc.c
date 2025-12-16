@@ -960,6 +960,10 @@ user_main(void *arg)
     KERNEL_EXECVE2(TEST, TESTSTART, TESTSIZE);
 #else
     KERNEL_EXECVE(exit);
+    // KERNEL_EXECVE(cow_basic);
+    // KERNEL_EXECVE(cow_parent_first);
+    // KERNEL_EXECVE(cow_multi_pages);
+    KERNEL_EXECVE(cow_many_children);
 #endif
     panic("user_main execve failed.\n");
 }

@@ -222,9 +222,23 @@ void exception_handler(struct trapframe *tf)
         cprintf("Instruction page fault\n");
         break;
     case CAUSE_LOAD_PAGE_FAULT:
+        // COW添加
+        if (current != NULL && !trap_in_kernel(tf))
+        {
+            if (do_pgfault(current->mm, 0, tf->tval) == 0)
+                return;
+            // fallthrough: unhandled -> kill
+        }
         cprintf("Load page fault\n");
         break;
     case CAUSE_STORE_PAGE_FAULT:
+        // COW添加
+        if (current != NULL && !trap_in_kernel(tf))
+        {
+            if (do_pgfault(current->mm, 1, tf->tval) == 0)
+                return;
+            // unhandled -> kill
+        }
         cprintf("Store/AMO page fault\n");
         break;
     default:
