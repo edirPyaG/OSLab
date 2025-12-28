@@ -110,8 +110,4 @@ add_executable(lab5
         user/spin.c
         user/testbss.c
         user/waitkill.c
-        user/yield.c
-        user/cow_basic.c
-        user/cow_parent_first.c
-        user/cow_multi_pages.c
-        user/cow_many_children.c)
+        user/yield.c)

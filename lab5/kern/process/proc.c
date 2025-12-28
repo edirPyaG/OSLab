@@ -89,7 +89,7 @@ alloc_proc(void)
     struct proc_struct *proc = kmalloc(sizeof(struct proc_struct));
     if (proc != NULL)
     {
-        // LAB4:EXERCISE1 2313247
+        // LAB4:EXERCISE1 YOUR CODE
         /*
          * below fields in proc_struct need to be initialized
          *       enum proc_state state;                      // Process state
@@ -106,7 +106,7 @@ alloc_proc(void)
          *       char name[PROC_NAME_LEN + 1];               // Process name
          */
 
-        // LAB5 2313247 : (update LAB4 steps)
+        // LAB5 YOUR CODE : (update LAB4 steps)
         /*
          * below fields(add in LAB5) in proc_struct need to be initialized
          *       uint32_t wait_state;                        // waiting state
@@ -230,7 +230,7 @@ void proc_run(struct proc_struct *proc)
 {
     if (proc != current)
     {
-        // LAB4:EXERCISE3 2313247
+        // LAB4:EXERCISE3 YOUR CODE
         /*
          * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
          * MACROs or Functions:
@@ -436,7 +436,7 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
         goto fork_out;
     }
     ret = -E_NO_MEM;
-    // LAB4:EXERCISE2 2313247
+    // LAB4:EXERCISE2 YOUR CODE
     /*
      * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
      * MACROs or Functions:
@@ -462,7 +462,7 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
     //    6. call wakeup_proc to make the new child process RUNNABLE
     //    7. set ret vaule using child proc's pid
 
-    // LAB5 2313247 : (update LAB4 steps)
+    // LAB5 YOUR CODE : (update LAB4 steps)
     // TIPS: you should modify your written code in lab4(step1 and step5), not add more code.
     /* Some Functions
      *    set_links:  set the relation links of process.  ALSO SEE: remove_links:  lean the relation links of process
@@ -726,7 +726,7 @@ load_icode(unsigned char *binary, size_t size)
     // Keep sstatus
     uintptr_t sstatus = tf->status;
     memset(tf, 0, sizeof(struct trapframe));
-    /* LAB5:EXERCISE1 2313247
+    /* LAB5:EXERCISE1 YOUR CODE
      * should set tf->gpr.sp, tf->epc, tf->status
      * NOTICE: If we set trapframe correctly, then the user level process can return to USER MODE from kernel. So
      *          tf->gpr.sp should be user stack top (the value of sp)
@@ -777,28 +777,24 @@ int do_execve(const char *name, size_t len, unsigned char *binary, size_t size)
     memset(local_name, 0, sizeof(local_name));
     memcpy(local_name, name, len);
 
-    if (mm != NULL) // 如果当前进程有内存空间，则释放之
+    if (mm != NULL)
     {
         cputs("mm != NULL");
-        lsatp(boot_pgdir_pa); // 切换回内核页表，避免在释放用户页表时仍使用它
-        if (mm_count_dec(mm) == 0) // 减引用计数，为0则释放内存空间
+        lsatp(boot_pgdir_pa);
+        if (mm_count_dec(mm) == 0)
         {
-            exit_mmap(mm); // 释放内存映射
-            put_pgdir(mm); // 释放页目录
-            mm_destroy(mm); // 销毁内存管理结构
+            exit_mmap(mm);
+            put_pgdir(mm);
+            mm_destroy(mm);
         }
         current->mm = NULL;
     }
     int ret;
-    if ((ret = load_icode(binary, size)) != 0) // 加载新的可执行文件
+    if ((ret = load_icode(binary, size)) != 0)
     {
         goto execve_exit;
     }
     set_proc_name(current, local_name);
-    // 不能直接set_proc_name(current, name);
-    // 因为name是用户空间的地址，不能直接访问
-    // do_execve 过程中会先释放旧 mm 并切回内核页表（lsatp(boot_pgdir_pa) + exit_mmap/put_pgdir/mm_destroy）
-    // 一旦释放，name 指向的内存不再可访问，直接使用会造成非法访问或崩溃
     return 0;
 
 execve_exit:
@@ -821,7 +817,7 @@ int do_wait(int pid, int *code_store)
     struct mm_struct *mm = current->mm;
     if (code_store != NULL)
     {
-        if (!user_mem_check(mm, (uintptr_t)code_store, sizeof(int), 1)) // 检查是否有权限写code_store
+        if (!user_mem_check(mm, (uintptr_t)code_store, sizeof(int), 1))
         {
             return -E_INVAL;
         }
@@ -829,9 +825,8 @@ int do_wait(int pid, int *code_store)
 
     struct proc_struct *proc;
     bool intr_flag, haskid;
-repeat: // 进入 repeat 循环，初始化 haskid=0
+repeat:
     haskid = 0;
-    // 如果有子进程，那么pid为非0；无子进程时，pid为0
     if (pid != 0)
     {
         proc = find_proc(pid);
@@ -846,7 +841,7 @@ repeat: // 进入 repeat 循环，初始化 haskid=0
     }
     else
     {
-        proc = current->cptr; // 遍历所有子进程
+        proc = current->cptr;
         for (; proc != NULL; proc = proc->optr)
         {
             haskid = 1;
@@ -856,12 +851,12 @@ repeat: // 进入 repeat 循环，初始化 haskid=0
             }
         }
     }
-    if (haskid) // 有子进程，但没有找到僵尸进程
+    if (haskid)
     {
-        current->state = PROC_SLEEPING; // 设置当前进程状态为睡眠
-        current->wait_state = WT_CHILD; // 设置等待状态为等待子进程
+        current->state = PROC_SLEEPING;
+        current->wait_state = WT_CHILD;
         schedule();
-        if (current->flags & PF_EXITING) // 如果当前进程标记为退出。PF_EXITING代表进程正在退出。
+        if (current->flags & PF_EXITING)
         {
             do_exit(-E_KILLED);
         }
@@ -878,13 +873,12 @@ found:
     {
         *code_store = proc->exit_code;
     }
-    local_intr_save(intr_flag); // 关中断
+    local_intr_save(intr_flag);
     {
         unhash_proc(proc);
         remove_links(proc);
     }
-    local_intr_restore(intr_flag); // 恢复中断
-    // 释放子进程的内核栈和proc_struct
+    local_intr_restore(intr_flag);
     put_kstack(proc);
     kfree(proc);
     return 0;
@@ -915,15 +909,15 @@ static int
 kernel_execve(const char *name, unsigned char *binary, size_t size)
 {
     int64_t ret = 0, len = strlen(name);
-    // 相当于ret = do_execve(name, len, binary, size);（但不一样）
+    //   ret = do_execve(name, len, binary, size);
     asm volatile(
         "li a0, %1\n"
-        "lw a1, %2\n" //加载4个参数：name, len, binary, size
+        "lw a1, %2\n"
         "lw a2, %3\n"
         "lw a3, %4\n"
         "lw a4, %5\n"
         "li a7, 10\n"
-        "ebreak\n" // 触发中断，进入内核态
+        "ebreak\n"
         "sw a0, %0\n"
         : "=m"(ret)
         : "i"(SYS_exec), "m"(name), "m"(len), "m"(binary), "m"(size)
@@ -960,10 +954,6 @@ user_main(void *arg)
     KERNEL_EXECVE2(TEST, TESTSTART, TESTSIZE);
 #else
     KERNEL_EXECVE(exit);
-    // KERNEL_EXECVE(cow_basic);
-    // KERNEL_EXECVE(cow_parent_first);
-    // KERNEL_EXECVE(cow_multi_pages);
-    KERNEL_EXECVE(cow_many_children);
 #endif
     panic("user_main execve failed.\n");
 }
@@ -975,13 +965,13 @@ init_main(void *arg)
     size_t nr_free_pages_store = nr_free_pages();
     size_t kernel_allocated_store = kallocated();
 
-    int pid = kernel_thread(user_main, NULL, 0); // 创建user_main线程
+    int pid = kernel_thread(user_main, NULL, 0);
     if (pid <= 0)
     {
         panic("create user_main failed.\n");
     }
 
-    while (do_wait(0, NULL) == 0) // 等待子进程退出
+    while (do_wait(0, NULL) == 0)
     {
         schedule();
     }
@@ -1022,7 +1012,7 @@ void proc_init(void)
 
     current = idleproc;
 
-    int pid = kernel_thread(init_main, NULL, 0); // 创建init_main线程
+    int pid = kernel_thread(init_main, NULL, 0);
     if (pid <= 0)
     {
         panic("create init_main failed.\n");

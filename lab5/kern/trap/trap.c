@@ -125,7 +125,7 @@ void interrupt_handler(struct trapframe *tf)
         // In fact, Call sbi_set_timer will clear STIP, or you can clear it
         // directly.
         // cprintf("Supervisor timer interrupt\n");
-        /* LAB5 GRADE 2313247 :*/
+        /* LAB3 EXERCISE1   YOUR CODE :  */
         /*(1)设置下次时钟中断- clock_set_next_event()
          *(2)计数器（ticks）自增
          *(3)每TICK_NUM次中断（如100次），进行判断当前是否有进程正在运行，如果有则标记该进程需要被重新调度（current->need_resched）
@@ -202,10 +202,7 @@ void exception_handler(struct trapframe *tf)
     case CAUSE_USER_ECALL:
         // cprintf("Environment call from U-mode\n");
         tf->epc += 4;
-        // sepc寄存器是产生异常的指令的位置，在异常处理结束后，会回到sepc的位置继续执行
-        // 对于ecall, 我们希望sepc寄存器要指向产生异常的指令(ecall)的下一条指令
-        // 否则就会回到ecall执行再执行一次ecall, 无限循环
-        syscall(); // 系统调用处理
+        syscall();
         break;
     case CAUSE_SUPERVISOR_ECALL:
         cprintf("Environment call from S-mode\n");
@@ -222,23 +219,9 @@ void exception_handler(struct trapframe *tf)
         cprintf("Instruction page fault\n");
         break;
     case CAUSE_LOAD_PAGE_FAULT:
-        // COW添加
-        if (current != NULL && !trap_in_kernel(tf))
-        {
-            if (do_pgfault(current->mm, 0, tf->tval) == 0)
-                return;
-            // fallthrough: unhandled -> kill
-        }
         cprintf("Load page fault\n");
         break;
     case CAUSE_STORE_PAGE_FAULT:
-        // COW添加
-        if (current != NULL && !trap_in_kernel(tf))
-        {
-            if (do_pgfault(current->mm, 1, tf->tval) == 0)
-                return;
-            // unhandled -> kill
-        }
         cprintf("Store/AMO page fault\n");
         break;
     default:

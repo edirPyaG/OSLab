@@ -399,14 +399,12 @@ int copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end,
             uint32_t perm = (*ptep & PTE_USER);
             // get page from ptep
             struct Page *page = pte2page(*ptep);
-            int ret = 0;
-            assert(page != NULL);
-
-            /* 以下为copy_range的原本实现方式 BEGIN*/
             // alloc a page for process B
             struct Page *npage = alloc_page();
+            assert(page != NULL);
             assert(npage != NULL);
-            /* LAB5:EXERCISE2 2312130
+            int ret = 0;
+            /* LAB5:EXERCISE2 YOUR CODE
              * replicate content of page to npage, build the map of phy addr of
              * nage with the linear addr start
              *
@@ -424,39 +422,13 @@ int copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end,
              * (3) memory copy from src_kvaddr to dst_kvaddr, size is PGSIZE
              * (4) build the map of phy addr of  nage with the linear addr start
              */
-            // (1) 源页的内核虚拟地址
-            void *src_kvaddr = page2kva(page);
-            // (2) 目标页的内核虚拟地址
-            void *dst_kvaddr = page2kva(npage);
-            // (3) 拷贝一页内容
-            memcpy(dst_kvaddr, src_kvaddr, PGSIZE);
-            // (4) 在 to（子进程）的页表中建立线性地址 start 的映射
-            ret = page_insert(to, npage, start, perm);
+
             assert(ret == 0);
-            /* 以上为copy_range的原本实现方式 END*/
-
-
-            //----------------分割线-----------------分割线----------------分割线------------------
-
-            /* 以下为copy_range的COW实现方式 BEGIN*/
-            // // Set up COW: make both mappings read-only (clear write bit)
-            // uint32_t roperm = perm & (~PTE_W);
-            // // increment refcount
-            // page_ref_inc(page);
-            // // update child pte to point to same page, read-only
-            // *nptep = pte_create(page2ppn(page), roperm);
-            // // update parent pte to read-only if it was writable
-            // *ptep = pte_create(page2ppn(page), roperm);
-            // // invalidate TLB entries for both page tables (at least for parent)
-            // tlb_invalidate(from, start);
-            // tlb_invalidate(to, start);
-            /* 以上为copy_range的COW实现方式 END*/
         }
         start += PGSIZE;
     } while (start != 0 && start < end);
     return 0;
 }
-
 
 // page_remove - free an Page which is related linear address la and has an
 // validated pte
