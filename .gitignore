@@ -1,7 +1,0 @@
-# 忽略所有 obj 和 bin 文件夹
-obj/
-bin/
-
-# 忽略所有以 . 开头的文件和文件夹（隐藏文件），但排除.gitignore
-.*
-!.gitignore
