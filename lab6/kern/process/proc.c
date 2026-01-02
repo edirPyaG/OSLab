@@ -116,7 +116,7 @@ alloc_proc(void)
         proc->tf=NULL;
         proc->pgdir=boot_pgdir_pa;
         proc->flags=0;
-        memset(proc->name,0,PROC_NAME_LEN+1);
+        memset(proc->name,0,PROC_NAME_LEN);
 
         // LAB5:填写你在lab5中实现的代码 (update LAB4 steps)
         /*
@@ -141,7 +141,8 @@ alloc_proc(void)
         proc->rq = NULL;                        // 初始化运行队列指针为空
         list_init(&(proc->run_link));           // 初始化运行队列链表节点
         proc->time_slice = 0;                   // 初始化时间片为0
-        proc->lab6_run_pool.left = proc->lab6_run_pool.right = proc->lab6_run_pool.parent = NULL;  // 初始化斜堆节点
+        skew_heap_init(&(proc->lab6_run_pool)); // 初始化斜堆结点
+        //proc->lab6_run_pool.left = proc->lab6_run_pool.right = proc->lab6_run_pool.parent = NULL;  // 初始化斜堆节点
         proc->lab6_stride = 0;                  // 初始化stride值为0
         proc->lab6_priority = 0;                // 初始化优先级为0
 
@@ -262,16 +263,20 @@ void proc_run(struct proc_struct *proc)
         local_intr_save(intr_flag); // 关闭中断
         struct proc_struct *prev=current; //记录之前的进程
         struct proc_struct *next=proc; //记录目标进程
-
-        //切换页表
-        if(next->pgdir!=prev->pgdir){
-            lsatp(next->pgdir>>12|SATP_MODE_SV39);
+    
+        // Switch current process to the new process
+        current = proc;
+        
+        // Switch page table to use new process's address space
+        if (next->pgdir != 0) {
+            lsatp(next->pgdir);
+        } else {
+            lsatp(boot_pgdir_pa);
         }
-        current=next; //切换current指针
-        //切换上下文
-        switch_to(&(prev->context),&(next->context));
-
-        //重新开启中断
+        
+        // Switch context
+        switch_to(&(prev->context), &(next->context));
+        // Enable interrupts
         local_intr_restore(intr_flag);
     }
 }
@@ -485,6 +490,8 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
     if (proc == NULL) {
         goto fork_out; // 如果alloc_proc失败，直接返回
     }
+    proc->parent = current;
+    assert(current->wait_state == 0);
     if (setup_kstack(proc) < 0) {
         goto bad_fork_cleanup_proc; // 如果setup_kstack失败，释放proc_struct并返回
     }
@@ -500,8 +507,6 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
      *    update step 1: set child proc's parent to current process, make sure current process's wait_state is 0
      *    update step 5: insert proc_struct into hash_list && proc_list, set the relation links of process
      */
-    proc->parent = current;
-    assert(current->wait_state == 0);
     bool intr_flag;
     local_intr_save(intr_flag);
     {
