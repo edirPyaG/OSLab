@@ -17,7 +17,9 @@
 static void
 RR_init(struct run_queue *rq)
 {
-    // LAB6: YOUR CODE
+    // LAB6: 2312130
+    list_init(&(rq->run_list)); // 初始化就绪队列链表头(空队列)
+    rq->proc_num = 0;           // 当前就绪进程数为0
 }
 
 /*
@@ -34,7 +36,19 @@ RR_init(struct run_queue *rq)
 static void
 RR_enqueue(struct run_queue *rq, struct proc_struct *proc)
 {
-    // LAB6: YOUR CODE
+    // LAB6: 2312130
+    assert(rq != NULL && proc != NULL);    // 基本健壮性检查
+    assert(list_empty(&(proc->run_link))); // 关键：防止重复入队破坏链表
+
+    proc->rq = rq; // 记录该进程所在的 run_queue
+    if (proc->time_slice <= 0)
+    {                                          // 时间片用尽/新建进程，需重新分配
+        proc->time_slice = rq->max_time_slice; // 统一设置为最大时间片
+    }
+
+    // RR: 入队到队尾(链表头 run_list 的前一个位置即队尾)
+    list_add_before(&(rq->run_list), &(proc->run_link)); // 将进程挂到队尾
+    rq->proc_num++;                                      // 更新就绪队列进程数
 }
 
 /*
@@ -47,7 +61,11 @@ RR_enqueue(struct run_queue *rq, struct proc_struct *proc)
 static void
 RR_dequeue(struct run_queue *rq, struct proc_struct *proc)
 {
-    // LAB6: YOUR CODE
+    // LAB6: 2312130
+    assert(rq != NULL && proc != NULL); // 基本健壮性检查
+    assert(proc->rq == rq);
+    list_del_init(&(proc->run_link)); // 从就绪队列中摘除并重新初始化结点
+    rq->proc_num--;                   // 更新就绪队列进程数
 }
 
 /*
@@ -61,7 +79,15 @@ RR_dequeue(struct run_queue *rq, struct proc_struct *proc)
 static struct proc_struct *
 RR_pick_next(struct run_queue *rq)
 {
-    // LAB6: YOUR CODE
+    // LAB6: 2312130
+    assert(rq != NULL); // run_queue 必须存在
+
+    if (list_empty(&(rq->run_list)))
+    { // 队列为空，无可运行进程
+        return NULL;
+    }
+    list_entry_t *le = list_next(&(rq->run_list)); // 取队头元素(链表头的下一个)
+    return le2proc(le, run_link);                  // 由链表结点反推出 proc_struct
 }
 
 /*
@@ -74,7 +100,17 @@ RR_pick_next(struct run_queue *rq)
 static void
 RR_proc_tick(struct run_queue *rq, struct proc_struct *proc)
 {
-    // LAB6: YOUR CODE
+    // LAB6: 2312130
+    assert(rq != NULL && proc != NULL); // 基本健壮性检查
+    assert(proc->rq == rq);
+    if (proc->time_slice > 0)
+    {                       // 仍有剩余时间片
+        proc->time_slice--; // 每次时钟中断消耗一个时间片
+    }
+    if (proc->time_slice <= 0)
+    { // 时间片耗尽，需要触发调度
+        proc->need_resched = 1;
+    } // 设置重调度标志，trap 返回前将调用 schedule()
 }
 
 struct sched_class default_sched_class = {

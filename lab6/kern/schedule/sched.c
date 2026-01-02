@@ -52,7 +52,8 @@ void sched_init(void)
 {
     list_init(&timer_list);
 
-    sched_class = &default_sched_class;
+    sched_class = &default_sched_class; // 默认：RR调度算法
+    // sched_class = &stride_sched_class; // Stride调度器
 
     rq = &__rq;
     rq->max_time_slice = MAX_TIME_SLICE;

@@ -16,8 +16,15 @@
 #include <sync.h>
 #include <sbi.h>
 #include <proc.h>
+#include <pmm.h>
+#include <string.h>
 
 #define TICK_NUM 100
+
+// 声明特权态时钟中断计数变量
+static int tickNum = 0;
+// 声明变量记录打印次数
+static int printCount = 0;
 
 static void print_ticks()
 {
@@ -129,9 +136,24 @@ void interrupt_handler(struct trapframe *tf)
          * (4)判断打印次数，当打印次数为10时，调用<sbi.h>中的关机函数关机
          */
 
-        // lab6: YOUR CODE  (update LAB3 steps)
-        //  在时钟中断时调用调度器的 sched_class_proc_tick 函数
+        // 2313247  (update LAB3 steps)
+        // 在时钟中断时调用调度器的 sched_class_proc_tick 函数
+        clock_set_next_event();
+        ticks++;
+        tickNum++;
 
+        if (tickNum % TICK_NUM == 0)
+        {
+            if (current != NULL && current != idleproc && !trap_in_kernel(tf))
+            {
+                current->need_resched = 1;
+            }
+        }
+
+        if (current != NULL)
+        {
+            sched_class_proc_tick(current);
+        }
         break;
     case IRQ_H_TIMER:
         cprintf("Hypervisor software interrupt\n");
