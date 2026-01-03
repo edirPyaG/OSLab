@@ -572,6 +572,11 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
     proc->parent = current;
     assert(current->wait_state == 0);
 
+    // LAB8:EXERCISE2 YOUR CODE - copy the files_struct from parent process
+    if (copy_files(clone_flags, proc) != 0) {
+        goto bad_fork_cleanup_kstack;
+    }
+
     // LAB5: Step 5 - use set_links to handle process list and relations
     bool intr_flag;
     local_intr_save(intr_flag);
@@ -584,12 +589,6 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
 
     wakeup_proc(proc);
     ret = proc->pid;
-    
-    
-    if (copy_files(clone_flags, proc) != 0)
-    { // for LAB8
-        goto bad_fork_cleanup_kstack;
-    }
     
 fork_out:
     return ret;
@@ -714,6 +713,200 @@ load_icode(int fd, int argc, char **kargv)
      * (8) if up steps failed, you should cleanup the env.
      */
     
+    assert(argc >= 0 && argc <= EXEC_MAX_ARG_NUM);
+    
+    // (1) create a new mm for current process
+    if (current->mm != NULL) {
+        panic("load_icode: current->mm must be empty.\n");
+    }
+    
+    int ret = -E_NO_MEM;
+    struct mm_struct *mm;
+    if ((mm = mm_create()) == NULL) {
+        goto bad_mm;
+    }
+    
+    // (2) create a new PDT, and mm->pgdir = kernel virtual addr of PDT
+    if (setup_pgdir(mm) != 0) {
+        goto bad_pgdir_cleanup_mm;
+    }
+    
+    struct Page *page;
+    
+    // (3) copy TEXT/DATA/BSS parts in binary to memory space of process
+    // (3.1) read raw data content in file and resolve elfhdr
+    struct elfhdr elf, *elf_header = &elf;
+    if ((ret = load_icode_read(fd, elf_header, sizeof(struct elfhdr), 0)) != 0) {
+        goto bad_elf_cleanup_pgdir;
+    }
+    
+    if (elf_header->e_magic != ELF_MAGIC) {
+        ret = -E_INVAL_ELF;
+        goto bad_elf_cleanup_pgdir;
+    }
+    
+    // (3.2) read raw data content in file and resolve proghdr based on info in elfhdr
+    struct proghdr ph, *ph_header = &ph;
+    uint64_t ph_offset = elf_header->e_phoff;
+    uint32_t ph_num = elf_header->e_phnum;
+    
+    uint32_t vm_flags, perm;
+    for (int i = 0; i < ph_num; i++) {
+        // read program header
+        if ((ret = load_icode_read(fd, ph_header, sizeof(struct proghdr), 
+                                   ph_offset)) != 0) {
+            goto bad_cleanup_mmap;
+        }
+        ph_offset += sizeof(struct proghdr);
+        
+        if (ph_header->p_type != ELF_PT_LOAD) {
+            continue;
+        }
+        if (ph_header->p_filesz > ph_header->p_memsz) {
+            ret = -E_INVAL_ELF;
+            goto bad_cleanup_mmap;
+        }
+        if (ph_header->p_filesz == 0) {
+            continue;
+        }
+        
+        // (3.3) call mm_map to build vma related to TEXT/DATA
+        vm_flags = 0;
+        perm = PTE_U | PTE_V;
+        if (ph_header->p_flags & ELF_PF_X) vm_flags |= VM_EXEC;
+        if (ph_header->p_flags & ELF_PF_W) vm_flags |= VM_WRITE;
+        if (ph_header->p_flags & ELF_PF_R) vm_flags |= VM_READ;
+        // modify the perm bits for RISC-V
+        if (vm_flags & VM_READ) perm |= PTE_R;
+        if (vm_flags & VM_WRITE) perm |= (PTE_W | PTE_R);
+        if (vm_flags & VM_EXEC) perm |= PTE_X;
+        
+        if ((ret = mm_map(mm, ph_header->p_va, ph_header->p_memsz, vm_flags, NULL)) != 0) {
+            goto bad_cleanup_mmap;
+        }
+        
+        uintptr_t start = ph_header->p_va, end, la = ROUNDDOWN(ph_header->p_va, PGSIZE);
+        unsigned char *from = NULL;
+        size_t off, size;
+        
+        end = ROUNDUP(start + ph_header->p_filesz, PGSIZE);
+        
+        // (3.4) call pgdir_alloc_page to allocate page for TEXT/DATA, 
+        // read contents in file and copy them into the new allocated pages
+        while (start < end) {
+            if ((page = pgdir_alloc_page(mm->pgdir, la, perm)) == NULL) {
+                ret = -E_NO_MEM;
+                goto bad_cleanup_mmap;
+            }
+            
+            off = start - la;
+            size = PGSIZE - off;
+            if (start + size > end) {
+                size = end - start;
+            }
+            
+            if ((ret = load_icode_read(fd, page2kva(page) + off, size, 
+                                       ph_header->p_offset + (start - ph_header->p_va))) != 0) {
+                goto bad_cleanup_mmap;
+            }
+            start += size;
+            la += PGSIZE;
+        }
+        
+        // (3.5) call pgdir_alloc_page to allocate pages for BSS, memset zero in these pages
+        end = ROUNDUP(ph_header->p_va + ph_header->p_memsz, PGSIZE);
+        if (start < end) {
+            if (start < la) {
+                /* ph->p_memsz == ph->p_filesz */
+                if (start == end) {
+                    continue;
+                }
+                off = start + PGSIZE - la, size = PGSIZE - off;
+                if (end < la) {
+                    size -= la - end;
+                }
+                memset(page2kva(page) + off, 0, size);
+                start += size;
+                assert((end < la) || (start == la));
+            }
+            while (start < end) {
+                if ((page = pgdir_alloc_page(mm->pgdir, la, perm)) == NULL) {
+                    ret = -E_NO_MEM;
+                    goto bad_cleanup_mmap;
+                }
+                off = start - la;
+                size = PGSIZE - off;
+                if (end < la + PGSIZE) {
+                    size -= la + PGSIZE - end;
+                }
+                memset(page2kva(page) + off, 0, size);
+                start += size;
+                la += PGSIZE;
+            }
+        }
+    }
+    
+    // close the file
+    sysfile_close(fd);
+    
+    // (4) build user stack memory
+    vm_flags = VM_READ | VM_WRITE | VM_STACK;
+    if ((ret = mm_map(mm, USTACKTOP - USTACKSIZE, USTACKSIZE, vm_flags, NULL)) != 0) {
+        goto bad_cleanup_mmap;
+    }
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP - PGSIZE, PTE_U | PTE_V | PTE_R | PTE_W) != NULL);
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP - 2 * PGSIZE, PTE_U | PTE_V | PTE_R | PTE_W) != NULL);
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP - 3 * PGSIZE, PTE_U | PTE_V | PTE_R | PTE_W) != NULL);
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP - 4 * PGSIZE, PTE_U | PTE_V | PTE_R | PTE_W) != NULL);
+    
+    // (5) set current process's mm, cr3, and set CR3 reg = physical addr of Page Directory
+    mm_count_inc(mm);
+    current->mm = mm;
+    current->pgdir = PADDR(mm->pgdir);
+    lsatp(PADDR(mm->pgdir) >> 12 | SATP_MODE_SV39);
+    
+    // (6) setup argc, argv in user stack
+    uintptr_t stacktop = USTACKTOP - sizeof(uintptr_t);
+    *(uintptr_t *)stacktop = 0; // argv[argc] = NULL
+    
+    uintptr_t argv_base = stacktop;
+    for (int i = argc - 1; i >= 0; i--) {
+        size_t len = strlen(kargv[i]) + 1;
+        stacktop -= len;
+        strcpy((char *)stacktop, kargv[i]);
+        
+        argv_base -= sizeof(uintptr_t);
+        *(uintptr_t *)argv_base = stacktop;
+    }
+    
+    stacktop = argv_base - sizeof(int);
+    *(int *)stacktop = argc;
+    
+    stacktop &= ~(sizeof(long) - 1);  // align to sizeof(long)
+    
+    // (7) setup trapframe for user environment
+    struct trapframe *tf = current->tf;
+    // Keep supervisor exception previous privilege mode
+    uintptr_t sstatus = read_csr(sstatus);
+    sstatus &= ~SSTATUS_SPP;
+    sstatus |= SSTATUS_SPIE;
+    memset(tf, 0, sizeof(struct trapframe));
+    tf->gpr.sp = stacktop;
+    tf->epc = elf_header->e_entry;
+    tf->status = sstatus;
+    
+    ret = 0;
+out:
+    return ret;
+    
+bad_cleanup_mmap:
+    exit_mmap(mm);
+bad_elf_cleanup_pgdir:
+    put_pgdir(mm);
+bad_pgdir_cleanup_mm:
+    mm_destroy(mm);
+bad_mm:
+    goto out;
 }
 
 // this function isn't very correct in LAB8
