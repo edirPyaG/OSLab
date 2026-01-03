@@ -810,39 +810,40 @@ load_icode(int fd, int argc, char **kargv)
                 goto bad_cleanup_mmap;
             }
             start += size;
-            la += PGSIZE;
+            if (start < end) {
+                la += PGSIZE;
+            }
         }
         
         // (3.5) call pgdir_alloc_page to allocate pages for BSS, memset zero in these pages
         end = ROUNDUP(ph_header->p_va + ph_header->p_memsz, PGSIZE);
-        if (start < end) {
-            if (start < la) {
-                /* ph->p_memsz == ph->p_filesz */
-                if (start == end) {
-                    continue;
-                }
-                off = start + PGSIZE - la, size = PGSIZE - off;
-                if (end < la) {
-                    size -= la - end;
-                }
-                memset(page2kva(page) + off, 0, size);
-                start += size;
-                assert((end < la) || (start == la));
+        if (start < la) {
+            /* ph->p_memsz == ph->p_filesz */
+            if (start == end) {
+                continue;
             }
-            while (start < end) {
-                if ((page = pgdir_alloc_page(mm->pgdir, la, perm)) == NULL) {
-                    ret = -E_NO_MEM;
-                    goto bad_cleanup_mmap;
-                }
-                off = start - la;
-                size = PGSIZE - off;
-                if (end < la + PGSIZE) {
-                    size -= la + PGSIZE - end;
-                }
-                memset(page2kva(page) + off, 0, size);
-                start += size;
-                la += PGSIZE;
+            off = start + PGSIZE - la;
+            size = PGSIZE - off;
+            if (end < la + PGSIZE) {
+                size -= la + PGSIZE - end;
             }
+            memset(page2kva(page) + off, 0, size);
+            start += size;
+            assert((end < la + PGSIZE) || (start == la + PGSIZE));
+        }
+        while (start < end) {
+            if ((page = pgdir_alloc_page(mm->pgdir, la, perm)) == NULL) {
+                ret = -E_NO_MEM;
+                goto bad_cleanup_mmap;
+            }
+            off = start - la;
+            size = PGSIZE - off;
+            if (end < la + PGSIZE) {
+                size -= la + PGSIZE - end;
+            }
+            memset(page2kva(page) + off, 0, size);
+            start += size;
+            la += PGSIZE;
         }
     }
     
@@ -859,32 +860,70 @@ load_icode(int fd, int argc, char **kargv)
     assert(pgdir_alloc_page(mm->pgdir, USTACKTOP - 3 * PGSIZE, PTE_U | PTE_V | PTE_R | PTE_W) != NULL);
     assert(pgdir_alloc_page(mm->pgdir, USTACKTOP - 4 * PGSIZE, PTE_U | PTE_V | PTE_R | PTE_W) != NULL);
     
-    // (5) set current process's mm, cr3, and set CR3 reg = physical addr of Page Directory
+    // (5) set current process's mm first
     mm_count_inc(mm);
     current->mm = mm;
     current->pgdir = PADDR(mm->pgdir);
-    lsatp(PADDR(mm->pgdir) >> 12 | SATP_MODE_SV39);
     
     // (6) setup argc, argv in user stack
-    uintptr_t stacktop = USTACKTOP - sizeof(uintptr_t);
-    *(uintptr_t *)stacktop = 0; // argv[argc] = NULL
+    // We need to access user pages via kernel virtual address (page2kva)
+    // NOT via user virtual address!
+    uintptr_t stacktop = USTACKTOP;
     
-    uintptr_t argv_base = stacktop;
+    // Reserve space for argv array (including NULL terminator)
+    uintptr_t uargv = stacktop - (argc + 1) * sizeof(uintptr_t);
+    stacktop = uargv;  // Start placing strings below argv array
+    
+    // Copy argv strings and pointers
     for (int i = argc - 1; i >= 0; i--) {
         size_t len = strlen(kargv[i]) + 1;
         stacktop -= len;
-        strcpy((char *)stacktop, kargv[i]);
         
-        argv_base -= sizeof(uintptr_t);
-        *(uintptr_t *)argv_base = stacktop;
+        // Get the page for this address
+        uintptr_t la = stacktop;
+        pte_t *ptep = get_pte(mm->pgdir, la, 0);
+        if (ptep == NULL) {
+            ret = -E_INVAL;
+            goto bad_cleanup_mmap;
+        }
+        struct Page *arg_page = pte2page(*ptep);
+        // Get kernel virtual address
+        uintptr_t kva = (uintptr_t)page2kva(arg_page);
+        uintptr_t offset = la - ROUNDDOWN(la, PGSIZE);
+        strcpy((char *)(kva + offset), kargv[i]);
+        
+        // Set argv[i] pointer  
+        la = uargv + i * sizeof(uintptr_t);
+        ptep = get_pte(mm->pgdir, la, 0);
+        if (ptep == NULL) {
+            ret = -E_INVAL;
+            goto bad_cleanup_mmap;
+        }
+        arg_page = pte2page(*ptep);
+        kva = (uintptr_t)page2kva(arg_page);
+        offset = la - ROUNDDOWN(la, PGSIZE);
+        *(uintptr_t *)(kva + offset) = stacktop;
     }
     
-    stacktop = argv_base - sizeof(int);
-    *(int *)stacktop = argc;
+    // Set argv[argc] = NULL
+    uintptr_t la = uargv + argc * sizeof(uintptr_t);
+    pte_t *ptep = get_pte(mm->pgdir, la, 0);
+    if (ptep == NULL) {
+        ret = -E_INVAL;
+        goto bad_cleanup_mmap;
+    }
+    struct Page *arg_page = pte2page(*ptep);
+    uintptr_t kva = (uintptr_t)page2kva(arg_page);
+    uintptr_t offset = la - ROUNDDOWN(la, PGSIZE);
+    *(uintptr_t *)(kva + offset) = 0;
     
-    stacktop &= ~(sizeof(long) - 1);  // align to sizeof(long)
+    // Align stack pointer
+    stacktop &= ~(sizeof(long) - 1);
     
-    // (7) setup trapframe for user environment
+    // (7) NOW switch to the new page table
+    lsatp(PADDR(mm->pgdir) >> 12 | SATP_MODE_SV39);
+    
+    // (8) setup trapframe for user environment
     struct trapframe *tf = current->tf;
     // Keep supervisor exception previous privilege mode
     uintptr_t sstatus = read_csr(sstatus);
@@ -894,12 +933,21 @@ load_icode(int fd, int argc, char **kargv)
     tf->gpr.sp = stacktop;
     tf->epc = elf_header->e_entry;
     tf->status = sstatus;
+    tf->gpr.a0 = argc;  // Pass argc as first argument
+    tf->gpr.a1 = uargv;  // Pass argv as second argument (user virtual address)
     
     ret = 0;
 out:
     return ret;
     
 bad_cleanup_mmap:
+    // Need to decrease mm_count if we already incremented it
+    if (current->mm == mm) {
+        current->mm = NULL;
+        current->pgdir = boot_pgdir_pa;
+        lsatp(boot_pgdir_pa >> 12 | SATP_MODE_SV39);
+        mm_count_dec(mm);
+    }
     exit_mmap(mm);
 bad_elf_cleanup_pgdir:
     put_pgdir(mm);
